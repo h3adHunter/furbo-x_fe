@@ -1,9 +1,9 @@
 "use client";
-// Scene.js
-import React, { use, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import * as THREE from 'three';
+import { Color } from 'three';
 import { OrbitControls } from '@react-three/drei';
+import { useSpring, animated } from '@react-spring/three';
 import { Socket } from 'phoenix';
 
 // const StarfieldBackground = () => {
@@ -17,62 +17,48 @@ import { Socket } from 'phoenix';
 //   );
 // }
 
-const Sphere = ({ initialPosition }: { initialPosition: [number, number, number] }) => {
-  const meshRef = useRef<any>();
-  const [hovered, setHovered] = useState(false);
-  const [clicked, setClicked] = useState(false);
-  const [position, setPosition] = useState(initialPosition); // Initial position [x, y, z]
+interface Player {
+  position: [number, number];
+  // Add other player properties as needed
+}
+
+interface SphereProps {
+  player: Player;
+}
+
+const Sphere = ({ player }: SphereProps) => {
+    const meshRef = useRef<any>();
+
+    // Create animated spring values for smooth movement
+  const { position } = useSpring({
+    // Convert 2D position from server to 3D position for Three.js
+    position: [player.position[0], player.position[1], 0] as [number, number, number],
+    config: {
+      mass: 1,
+      tension: 170,
+      friction: 26,
+    }
+  });
 
   // Rotate the sphere on every frame update
   // useFrame(() => {
   //   if (meshRef.current) {
-  //     meshRef.current.rotation.y += 0.001;
+  //     meshRef.current.rotation.y += 0.1;
   //   }
   // });
 
-  // Update position based on arrow key input
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      setPosition((prevPosition) => {
-        switch (event.key) {
-          case 'ArrowUp': // Move up
-            return [prevPosition[0], prevPosition[1] + 0.1, prevPosition[2]];
-          case 'ArrowDown': // Move down
-            return [prevPosition[0], prevPosition[1] - 0.1, prevPosition[2]];
-          case 'ArrowLeft': // Move left
-            return [prevPosition[0] - 0.1, prevPosition[1], prevPosition[2]];
-          case 'ArrowRight': // Move right
-            return [prevPosition[0] + 0.1, prevPosition[1], prevPosition[2]];
-          default:
-            return prevPosition;
-        }
-      });
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
-
-  // Rotate the cube on every frame update
-  useFrame(() => {
-    // meshRef.current.rotation.x += 0.001;
-    meshRef.current.rotation.y += 0.001;
-  });
-
   return (
-    <mesh
+    <animated.mesh
       ref={meshRef}
+      position={position as any}
       scale={1}
-      position={position}
       // onClick={() => setClicked(!clicked)}
       // onPointerOver={() => setHovered(true)}
       // onPointerOut={() => setHovered(false)}
     >
       <sphereGeometry args={[1]} />
-      <meshStandardMaterial color={hovered ? 'hotpink' : 'orange'} />
-    </mesh>
+      <meshStandardMaterial color="orange" />
+    </animated.mesh>
   );
 };
 
@@ -88,7 +74,7 @@ const Lighting = () => {
         penumbra={1}
         intensity={3} // High-intensity spotlight for brightness
         castShadow
-        color={new THREE.Color(0xffffff)}
+        color={new Color(0xffffff)}
       />
     </>
   );
@@ -103,39 +89,126 @@ const Lighting = () => {
 //   );
 // }
 
-const Scene = () => {
-  // const [socket, setSocket] = useState<any>(null);
-  // const [channel, setChannel] = useState<any>(null);
-
-  // useEffect(() => {
-  //   const socket = new Socket('ws://192.168.0.187:4000/socket', { transports: ['websocket'] });
-  //   setSocket(socket);
-  //   socket.connect();
-  // }, []);
-
-  // useEffect(() => {
-  //   if (!socket) return;
-  //   const phoenixChannel = socket.channel('world:lobby', { });
-  //   phoenixChannel.join().receive('ok', () => {
-  //     setChannel(phoenixChannel);
-
-  //     phoenixChannel.on("shout", (payload: any) => {
-  //       console.log(payload);
-  //     })
-
-  //     phoenixChannel.push("shout", { userData: { name: 'jotaemebe' } });
-  //   });
-  // }, [socket]);
-
-  const SCENE_CONFIGURATION = {
-    canvasProps: {
-      height: '100vh', width: '100vw'
-    },
-    cameraProps: {
-      fov: 10, //Field of Vision
-      position: [0, 0, 3]
-    }
+const SCENE_CONFIGURATION = {
+  canvasProps: {
+    height: '100vh', width: '100vw'
+  },
+  cameraProps: {
+    fov: 10, //Field of Vision
+    position: [0, 0, 3]
   }
+}
+
+const Scene = () => {
+  // WEB SOCKET'S CONNECTIONS
+  const [socket, setSocket] = useState<any>(null);
+  const [channel, setChannel] = useState<any>(null);
+  const [players, setPlayers] = useState<any>(null);
+
+  useEffect(() => {
+    const socket = new Socket('ws://192.168.0.187:4000/socket', { transports: ['websocket'] });
+    setSocket(socket);
+    socket.connect();
+  }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    const phoenixChannel = socket.channel('furbox:main', { });
+    phoenixChannel.join().receive('ok', () => {
+      setChannel(phoenixChannel);
+
+      phoenixChannel.on("game_changed", (payload: any) => {
+        // console.log(payload);
+        setPlayers(payload.players);
+      })
+
+      phoenixChannel.push("move_player", { player: 'Rodo', offset: [0, 0]});
+    });
+  }, [socket]);
+
+  // KEYBOARD INPUT
+  // Update target position based on arrow key input
+  // useEffect(() => {
+  //   const moveStep = 1; // Adjust this value to control movement distance
+
+  //   const handleUserKeyDown = (event: KeyboardEvent) => {
+  //     // Prevent default behavior to avoid scrolling
+  //     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+  //       event.preventDefault();
+  //     }
+
+  //     switch (event.key) {
+  //       case 'ArrowUp':
+  //         channel.push("move_player", { player: 'Rodo', offset: [0, 1] });
+  //         // return [prevPosition[0], prevPosition[1] + moveStep, prevPosition[2]];
+  //       case 'ArrowDown':
+  //         channel.push("move_player", { player: 'Rodo', offset: [0, -1] });
+  //         // return [prevPosition[0], prevPosition[1] - moveStep, prevPosition[2]];
+  //       case 'ArrowLeft':
+  //         // return [prevPosition[0] - moveStep, prevPosition[1], prevPosition[2]];
+  //       case 'ArrowRight':
+  //         // return [prevPosition[0] + moveStep, prevPosition[1], prevPosition[2]];
+  //     }
+  //     // setTargetPosition((prevPosition) => {
+  //     //   switch (event.key) {
+  //     //     case 'ArrowUp':
+  //     //       channel.push("move_player", { player: 'Rodo', offset: [0, 1] });
+  //     //       // return [prevPosition[0], prevPosition[1] + moveStep, prevPosition[2]];
+  //     //     case 'ArrowDown':
+  //     //       channel.push("move_player", { player: 'Rodo', offset: [0, -1] });
+  //     //       // return [prevPosition[0], prevPosition[1] - moveStep, prevPosition[2]];
+  //     //     case 'ArrowLeft':
+  //     //       // return [prevPosition[0] - moveStep, prevPosition[1], prevPosition[2]];
+  //     //     case 'ArrowRight':
+  //     //       // return [prevPosition[0] + moveStep, prevPosition[1], prevPosition[2]];
+  //     //     default:
+  //     //       return prevPosition;
+  //     //   }
+  //     // });
+  //   };
+
+  //   window.addEventListener('keydown', handleUserKeyDown);
+  //   return () => {
+  //     window.removeEventListener('keydown', handleUserKeyDown);
+  //   };
+  // }, [channel]);
+
+  useEffect(() => {
+    const handleUserKeyDown = (event: KeyboardEvent) => {
+      if (!channel) return;
+
+      // Prevent default behavior to avoid scrolling
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        event.preventDefault();
+      }
+
+      switch (event.key) {
+        case 'ArrowUp':
+          channel.push("move_player", { player: 'Rodo', offset: [0, 1] });
+          break;
+        case 'ArrowDown':
+          channel.push("move_player", { player: 'Rodo', offset: [0, -1] });
+          break;
+        case 'ArrowLeft':
+          channel.push("move_player", { player: 'Rodo', offset: [-1, 0] });
+          break;
+        case 'ArrowRight':
+          channel.push("move_player", { player: 'Rodo', offset: [1, 0] });
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleUserKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleUserKeyDown);
+    };
+  }, [channel]);
+
+  // PLAYERS POSITION UPDATE
+  useEffect(() => {
+    console.log(players);
+    // handlePositionChange(players); // I will receive a new position and want to handle this position change on each sphere
+  }, [players]);
 
   return (
     <Canvas
@@ -150,8 +223,19 @@ const Scene = () => {
       {/* <Effects /> */}
 
       {/* Models */}
-      <Sphere initialPosition={[0, -2, 0]} />
-      <Sphere initialPosition={[0, 2, 0]} />
+      {/* { players && players.map((player: any, index: number) => (
+        <Sphere
+          key={index}
+          initialPosition={[player.position[0], player.position[1], 0]} />
+      )) } */}
+
+      {players?.map((player: Player, index: number) => (
+        <Sphere
+          key={`player-${index}`}
+          player={player}
+        />
+      ))}
+      {/* <Sphere initialPosition={[0, 2, 0]} handlePositionChange={handlePositionChange}/> */}
 
       {/* Orbit controls to interact with the scene */}
       <OrbitControls
