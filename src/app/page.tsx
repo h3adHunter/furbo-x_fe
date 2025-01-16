@@ -1,95 +1,98 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+"use client";
+// Scene.js
+import React, { use, useEffect, useRef, useState } from 'react';
+import { Canvas, useFrame } from '@react-three/fiber';
+import * as THREE from 'three';
+import { OrbitControls } from '@react-three/drei';
+import { Socket } from 'phoenix';
 
-export default function Home() {
+// const StarfieldBackground = () => {
+//   return (
+//     <mesh>
+//       <points>
+//         <bufferGeometry />
+//         <pointsMaterial size={0.1} sizeAttenuation={true} />
+//       </points>
+//     </mesh>
+//   );
+// }
+
+const Sphere = () => {
+  const meshRef = useRef<any>();
+  const [hovered, setHovered] = useState(false);
+  const [clicked, setClicked] = useState(false);
+
+  // Rotate the cube on every frame update
+  useFrame(() => {
+    // meshRef.current.rotation.x += 0.001;
+    meshRef.current.rotation.y += 0.001;
+  });
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol>
-          <li>
-            Get started by editing <code>src/app/page.tsx</code>.
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={styles.secondary}
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className={styles.footer}>
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+    <mesh
+      ref={meshRef}
+      scale={1}
+      // onClick={() => setClicked(!clicked)}
+      // onPointerOver={() => setHovered(true)}
+      // onPointerOut={() => setHovered(false)}
+    >
+      <sphereGeometry args={[1]} />
+      <meshStandardMaterial color={hovered ? 'hotpink' : 'orange'} />
+    </mesh>
   );
-}
+};
+
+const Scene = () => {
+  const [socket, setSocket] = useState<any>(null);
+  const [channel, setChannel] = useState<any>(null);
+
+  useEffect(() => {
+    const socket = new Socket('ws://192.168.0.187:4000/socket', { transports: ['websocket'] });
+    setSocket(socket);
+    socket.connect();
+  }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    const phoenixChannel = socket.channel('world:lobby', { });
+    phoenixChannel.join().receive('ok', () => {
+      setChannel(phoenixChannel);
+
+      phoenixChannel.on("shout", (payload: any) => {
+        console.log(payload);
+      })
+
+      phoenixChannel.push("shout", { userData: { name: 'jotaemebe' } });
+    });
+  }, [socket]);
+
+  return (
+    <Canvas
+      style={{ height: '100vh', width: '100vw' }}  // Fullscreen canvas
+      camera={{ position: [0, 0, 3], fov: 500 }}    // Adjust camera to view model from front
+    >
+
+      {/* Enhanced Lighting */}
+      <ambientLight intensity={1.5} /> {/* Stronger ambient light for brightness */}
+      <directionalLight position={[10, 10, 10]} intensity={3.0} /> {/* Strong directional light for shadows */}
+      <spotLight
+        position={[2, 5, 5]}
+        angle={0.5}
+        penumbra={1}
+        intensity={3} // High-intensity spotlight for brightness
+        castShadow
+        color={new THREE.Color(0xffffff)}
+      />
+
+      {/* Orbit controls to interact with the scene */}
+      {/* <OrbitControls
+        enableZoom={true}
+        enablePan={true}
+      /> */}
+
+      <Sphere />
+    </Canvas>
+  );
+};
+
+export default Scene;
