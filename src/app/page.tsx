@@ -73,6 +73,7 @@ const Scene = () => {
   const [socket, setSocket] = useState<any>(null);
   const [channel, setChannel] = useState<any>(null);
   const [players, setPlayers] = useState<any>(null);
+  const [playerNumber, setPlayerNumber] = useState<number>(0);
 
   const gui = new GUI();
 
@@ -85,15 +86,14 @@ const Scene = () => {
   useEffect(() => {
     if (!socket) return;
     const phoenixChannel = socket.channel('furbox:main', { });
-    phoenixChannel.join().receive('ok', () => {
+    phoenixChannel.join().receive('ok', (resp) => {
       setChannel(phoenixChannel);
-
+      setPlayerNumber(resp);
       phoenixChannel.on("game_changed", (payload: any) => {
         // console.log(payload);
-        setPlayers(payload.players);
+        console.log([...payload.players, payload.ball]);
+        setPlayers([...payload.players, payload.ball]);
       })
-
-      phoenixChannel.push("move_player", { player: 'Rodo', offset: [0, 0]});
     });
   }, [socket]);
 
@@ -129,7 +129,7 @@ const Scene = () => {
       if (keysPressed['ArrowRight'] || keysPressed['d'] || keysPressed['D']) offsetX += 1;
 
       if (offsetX !== 0 || offsetY !== 0) {
-        channel.push("move_player", { player: 'Rodo', offset: [offsetX, offsetY] });
+        channel.push("move_player", { player: playerNumber, offset: [offsetX, offsetY] });
       }
 
       if(keysPressed[' ']) {
