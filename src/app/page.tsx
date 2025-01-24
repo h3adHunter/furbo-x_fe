@@ -104,9 +104,10 @@ const Scene = () => {
   const [socket, setSocket] = useState<any>(null);
   const [channel, setChannel] = useState<any>(null);
   const [players, setPlayers] = useState<any>(null);
+  const [playerNumber, setPlayerNumber] = useState<number>(0);
 
   useEffect(() => {
-    const socket = new Socket('ws://192.168.0.187:4000/socket', { transports: ['websocket'] });
+    const socket = new Socket('ws://localhost:4000/socket', { transports: ['websocket'] });
     setSocket(socket);
     socket.connect();
   }, []);
@@ -114,12 +115,13 @@ const Scene = () => {
   useEffect(() => {
     if (!socket) return;
     const phoenixChannel = socket.channel('furbox:main', { });
-    phoenixChannel.join().receive('ok', () => {
+    phoenixChannel.join().receive('ok', (resp) => {
       setChannel(phoenixChannel);
-
+      setPlayerNumber(resp);
       phoenixChannel.on("game_changed", (payload: any) => {
         // console.log(payload);
-        setPlayers(payload.players);
+        console.log([...payload.players, payload.ball]);
+        setPlayers([...payload.players, payload.ball]);
       })
 
       phoenixChannel.push("move_player", { player: 'Rodo', offset: [0, 0]});
@@ -174,33 +176,50 @@ const Scene = () => {
   // }, [channel]);
 
   useEffect(() => {
+    const keysPressed: { [key: string]: boolean } = {};
+
     const handleUserKeyDown = (event: KeyboardEvent) => {
       if (!channel) return;
 
       // Prevent default behavior to avoid scrolling
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) {
         event.preventDefault();
       }
 
-      switch (event.key) {
-        case 'ArrowUp':
-          channel.push("move_player", { player: 'Rodo', offset: [0, 1] });
-          break;
-        case 'ArrowDown':
-          channel.push("move_player", { player: 'Rodo', offset: [0, -1] });
-          break;
-        case 'ArrowLeft':
-          channel.push("move_player", { player: 'Rodo', offset: [-1, 0] });
-          break;
-        case 'ArrowRight':
-          channel.push("move_player", { player: 'Rodo', offset: [1, 0] });
-          break;
+      keysPressed[event.key] = true;
+      updatePlayerPosition();
+    };
+
+    const handleUserKeyUp = (event: KeyboardEvent) => {
+      keysPressed[event.key] = false;
+      updatePlayerPosition();
+    };
+
+    const updatePlayerPosition = () => {
+      if (!channel) return;
+
+      let offsetX = 0;
+      let offsetY = 0;
+
+      if (keysPressed['ArrowUp']) offsetY += 1;
+      if (keysPressed['ArrowDown']) offsetY -= 1;
+      if (keysPressed['ArrowLeft']) offsetX -= 1;
+      if (keysPressed['ArrowRight']) offsetX += 1;
+
+      if (offsetX !== 0 || offsetY !== 0) {
+        channel.push("move_player", { player: playerNumber, offset: [offsetX, offsetY] });
+      }
+
+      if(keysPressed[' ']) {
+        console.log("Spaceee");
       }
     };
 
     window.addEventListener('keydown', handleUserKeyDown);
+    window.addEventListener('keyup', handleUserKeyUp);
     return () => {
       window.removeEventListener('keydown', handleUserKeyDown);
+      window.removeEventListener('keyup', handleUserKeyUp);
     };
   }, [channel]);
 
