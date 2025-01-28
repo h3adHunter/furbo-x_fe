@@ -18,6 +18,8 @@ import SpaceBackground from '@/components/background/SpaceBackground';
 
 import PlayerProps, { BallProps } from '@/types';
 
+import { useGameControls } from '@/hooks/use-game-controls';
+
 const SCENE_CONFIGURATION = {
   canvasProps: {
     height: '100vh', width: '100vw'
@@ -50,8 +52,10 @@ const Scene = () => {
   const currentBallPosition = useRef<Vector3>(new Vector3());
   const targetBallPosition = useRef<Vector3>(new Vector3());
 
+  useGameControls(channel, playerNumber);
+
   useEffect(() => {
-    const socket = new Socket('ws://localhost:4000/socket', { transports: ['websocket'] });
+    const socket = new Socket('ws://192.168.192.87:4000/socket', { transports: ['websocket'] });
     setSocket(socket);
     socket.connect();
   }, []);
@@ -71,7 +75,7 @@ const Scene = () => {
           const updatedPlayers = [...payload.players];
           const updatedBall = payload.ball;
 
-          console.log("Game updated:", payload);
+          // console.log("Game updated:", payload);
           // Update player positions
           updatedPlayers.forEach(player => {
             if (!playerRefs.current.has(player.id)) {
@@ -170,54 +174,47 @@ const Scene = () => {
     };
   }, [isConnected]);
 
-  useEffect(() => {
-    const keysPressed: { [key: string]: boolean } = {};
+  // useEffect(() => {
+  //   const keysPressed: { [key: string]: boolean } = {};
 
-    const handleUserKeyDown = (event: KeyboardEvent) => {
-      if (!channel) return;
+  //   const handleUserKeyDown = (event: KeyboardEvent) => {
+  //     keysPressed[event.key] = true;
+  //     updatePlayerPosition();
+  //   };
 
-      // Prevent default behavior to avoid scrolling
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) {
-        event.preventDefault();
-      }
+  //   const handleUserKeyUp = (event: KeyboardEvent) => {
+  //     keysPressed[event.key] = false;
+  //     updatePlayerPosition();
+  //   };
 
-      keysPressed[event.key] = true;
-      updatePlayerPosition();
-    };
+  //   const updatePlayerPosition = () => {
+  //     if (!channel) return;
 
-    const handleUserKeyUp = (event: KeyboardEvent) => {
-      keysPressed[event.key] = false;
-      updatePlayerPosition();
-    };
+  //     let offsetX = 0;
+  //     let offsetY = 0;
 
-    const updatePlayerPosition = () => {
-      if (!channel) return;
+  //     if (keysPressed['ArrowUp'] || keysPressed['w'] || keysPressed['W']) offsetY += 1;
+  //     if (keysPressed['ArrowDown'] || keysPressed['s'] || keysPressed['S']) offsetY -= 1;
+  //     if (keysPressed['ArrowLeft'] || keysPressed['a'] || keysPressed['A']) offsetX -= 1;
+  //     if (keysPressed['ArrowRight'] || keysPressed['d'] || keysPressed['D']) offsetX += 1;
 
-      let offsetX = 0;
-      let offsetY = 0;
+  //     if (offsetX !== 0 || offsetY !== 0) {
+  //       channel.push("move_player", { player: playerNumber, offset: [offsetX, offsetY] });
+  //     }
 
-      if (keysPressed['ArrowUp'] || keysPressed['w'] || keysPressed['W']) offsetY += 1;
-      if (keysPressed['ArrowDown'] || keysPressed['s'] || keysPressed['S']) offsetY -= 1;
-      if (keysPressed['ArrowLeft'] || keysPressed['a'] || keysPressed['A']) offsetX -= 1;
-      if (keysPressed['ArrowRight'] || keysPressed['d'] || keysPressed['D']) offsetX += 1;
+  //     if(keysPressed[' ']) {
+  //       console.log("Spaceee");
+  //     }
+  //   };
 
-      if (offsetX !== 0 || offsetY !== 0) {
-        channel.push("move_player", { player: playerNumber, offset: [offsetX, offsetY] });
-      }
+  //   window.addEventListener('keydown', handleUserKeyDown);
+  //   window.addEventListener('keyup', handleUserKeyUp);
 
-      if(keysPressed[' ']) {
-        console.log("Spaceee");
-      }
-    };
-
-    window.addEventListener('keydown', handleUserKeyDown);
-    window.addEventListener('keyup', handleUserKeyUp);
-
-    return () => {
-      window.removeEventListener('keydown', handleUserKeyDown);
-      window.removeEventListener('keyup', handleUserKeyUp);
-    };
-  }, [channel]);
+  //   return () => {
+  //     window.removeEventListener('keydown', handleUserKeyDown);
+  //     window.removeEventListener('keyup', handleUserKeyUp);
+  //   };
+  // });
 
   // GUI SETUP
   // Create a ref for the GUI instance
