@@ -5,7 +5,7 @@ import { SphereProps, PositionProps } from '@/types';
 import { useSpring, animated } from '@react-spring/three';
 import { Mesh } from 'three';
 
-const Sphere = React.forwardRef<Mesh, SphereProps>(({ player }, ref) => {
+const Sphere = React.forwardRef<Mesh, SphereProps>(({ player, color }, ref) => {
     // Create animated spring values for smooth movement
   const { position } = useSpring({
     // Convert 2D position from server to 3D position for Three.js
@@ -19,7 +19,7 @@ const Sphere = React.forwardRef<Mesh, SphereProps>(({ player }, ref) => {
 
   // Memoize geometry and material to prevent recreation
   const geometry = useMemo(() => <sphereGeometry args={[1]} />, []);
-  const material = useMemo(() => <meshStandardMaterial color="orange" />, []);
+  const material = useMemo(() => <meshStandardMaterial color={color} />, []);
 
   return (
     <animated.mesh

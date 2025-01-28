@@ -16,7 +16,7 @@ import Lighting from '@/components/lighting/Lighting';
 
 import SpaceBackground from '@/components/background/SpaceBackground';
 
-import PlayerProps from '@/types';
+import PlayerProps, { BallProps } from '@/types';
 
 const SCENE_CONFIGURATION = {
   canvasProps: {
@@ -37,11 +37,18 @@ const Scene = () => {
 
   // GAME'S STATE
   const [initialPlayers, setInitialPlayers] = useState<PlayerProps[]>([]);
+  const [initialBall, setInitialBall] = useState<BallProps>({ position: [0, 0] });
+
   // Create a Map to store refs by player ID
-  const sphereRefs = useRef<Map<string, React.RefObject<Mesh>>>(new Map());
+  const playerRefs = useRef<Map<string, React.RefObject<Mesh>>>(new Map());
   // Create a separate ref for position interpolation
-  const currentPositions = useRef<Map<string, Vector3>>(new Map());
-  const targetPositions = useRef<Map<string, Vector3>>(new Map());
+  const currentPlayerPositions = useRef<Map<string, Vector3>>(new Map());
+  const targetPlayerPositions = useRef<Map<string, Vector3>>(new Map());
+
+  // Create a Map to store refs for the ball
+  const ballRef = useRef<React.RefObject<Mesh>>(React.createRef<Mesh>());
+  const currentBallPosition = useRef<Vector3>(new Vector3());
+  const targetBallPosition = useRef<Vector3>(new Vector3());
 
   useEffect(() => {
     const socket = new Socket('ws://localhost:4000/socket', { transports: ['websocket'] });
@@ -61,24 +68,37 @@ const Scene = () => {
         setIsConnected(true);
 
         phoenixChannel.on("game_changed", (payload: any) => {
-          const updatedPlayers = [...payload.players, payload.ball];
+          const updatedPlayers = [...payload.players];
+          const updatedBall = payload.ball;
 
-          // Update target positions instead of state
+          console.log("Game updated:", payload);
+          // Update player positions
           updatedPlayers.forEach(player => {
-            if (!sphereRefs.current.has(player.id)) {
-              sphereRefs.current.set(player.id, React.createRef<Mesh>());
+            if (!playerRefs.current.has(player.id)) {
+              playerRefs.current.set(player.id, React.createRef<Mesh>());
               setInitialPlayers(prev => [...prev, player]); // Only update state for new players
             }
 
             // Update target position
             const targetPos = new Vector3(player.position[0], player.position[1], 0);
-            targetPositions.current.set(player.id, targetPos);
+            targetPlayerPositions.current.set(player.id, targetPos);
 
             // Initialize current position if it doesn't exist
-            if (!currentPositions.current.has(player.id)) {
-              currentPositions.current.set(player.id, targetPos.clone());
+            if (!currentPlayerPositions.current.has(player.id)) {
+              currentPlayerPositions.current.set(player.id, targetPos.clone());
             }
           });
+
+          // Update ball position
+          const ballTargetPos = new Vector3(
+            updatedBall.position[0],
+            updatedBall.position[1],
+            0
+          );
+          targetBallPosition.current = ballTargetPos;
+          if (!currentBallPosition.current) {
+            currentBallPosition.current = ballTargetPos.clone();
+          }
         });
       });
 
@@ -89,26 +109,37 @@ const Scene = () => {
   }, [socket]);
 
   // Create spheres only once for initial players
-  const spheres = useMemo(() =>
+  const playerSpheres  = useMemo(() =>
     initialPlayers.map((player) => (
       <Sphere
         key={player.id}
-        ref={sphereRefs.current.get(player.id)}
+        ref={playerRefs.current.get(player.id)}
         player={player}
+        color="orange"
       />
     )),
     [initialPlayers] // Only recreate when initial players change
   );
+
+  // Create a sphere for the ball
+  const ballSphere = useMemo(() => (
+    <Sphere
+      key="ball"
+      ref={ballRef.current}
+      player={{ id: "ball", position:initialBall.position}}
+      color="#ffffff"
+    />
+  ), [initialBall]);
 
   // Animation loop using requestAnimationFrame
   useEffect(() => {
     let animationFrameId: number;
 
     const animate = () => {
-      sphereRefs.current.forEach((ref, playerId) => {
+      playerRefs.current.forEach((ref, playerId) => {
         if (ref.current) {
-          const currentPos = currentPositions.current.get(playerId);
-          const targetPos = targetPositions.current.get(playerId);
+          const currentPos = currentPlayerPositions.current.get(playerId);
+          const targetPos = targetPlayerPositions.current.get(playerId);
 
           if (currentPos && targetPos) {
             // Smooth interpolation
@@ -119,6 +150,11 @@ const Scene = () => {
           }
         }
       });
+
+      if (ballRef.current?.current && targetBallPosition.current) {
+        currentBallPosition.current.lerp(targetBallPosition.current, 0.2);
+        ballRef.current.current.position.copy(currentBallPosition.current);
+      }
 
       animationFrameId = requestAnimationFrame(animate);
     };
@@ -213,8 +249,12 @@ const Scene = () => {
     >
       {/* Models */}
       <Court />
-      { spheres }
 
+      {/* Player spheres */}
+      { playerSpheres }
+
+      {/* Ball sphere */}
+      { ballSphere }
 
       {/* Camera animation */}
       {/* <AnimatedCamera /> */}
