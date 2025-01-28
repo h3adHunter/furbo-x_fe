@@ -1,62 +1,22 @@
 "use client";
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import GUI from 'lil-gui';
 import { Socket } from 'phoenix';
 
-import { BackSide, TextureLoader } from 'three';
+import { Mesh, Vector3 } from 'three';
+import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
-import { Canvas, useLoader } from '@react-three/fiber';
-import { useSpring, a } from '@react-spring/three';
 
 import Court from '@/components/core/Court';
 import Sphere from '@/components/core/Sphere';
 
-import Lighting from '@/components/lighting/Lighting';
 import Effects from '@/components/effects/Effects';
+import Lighting from '@/components/lighting/Lighting';
+
+import SpaceBackground from '@/components/background/SpaceBackground';
 
 import PlayerProps from '@/types';
-
-// const StarfieldBackground = () => {
-//   return (
-//     <mesh>
-//       <points>
-//         <bufferGeometry />
-//         <pointsMaterial size={0.1} sizeAttenuation={true} />
-//       </points>
-//     </mesh>
-//   );
-// }
-
-const SpaceBackground: React.FC = () => {
-  const spaceTexture = useLoader(TextureLoader, '/space-background.jpg'); // Load background image
-
-  return (
-    <mesh>
-      <sphereGeometry args={[100, 32, 32]} />
-      <meshBasicMaterial map={spaceTexture} side={BackSide} />
-    </mesh>
-  );
-};
-
-
-const AnimatedCamera: React.FC = () => {
-  const cameraSpring = useSpring({
-    from: { x: 0, y: 0, z: 500 },
-    to: { x: 100, y: 100, z: 300 },
-    config: { tension: 120, friction: 14 }
-  })
-
-  return (
-    <a.perspectiveCamera
-      position={[
-        cameraSpring.x,
-        cameraSpring.y,
-        cameraSpring.z
-      ]}
-    />
-  )
-}
 
 const SCENE_CONFIGURATION = {
   canvasProps: {
@@ -72,10 +32,16 @@ const Scene = () => {
   // WEB SOCKET'S CONNECTIONS
   const [socket, setSocket] = useState<any>(null);
   const [channel, setChannel] = useState<any>(null);
-  const [players, setPlayers] = useState<any>(null);
   const [playerNumber, setPlayerNumber] = useState<number>(0);
+  const [isConnected, setIsConnected] = useState<boolean>(false);
 
-  const gui = new GUI();
+  // GAME'S STATE
+  const [initialPlayers, setInitialPlayers] = useState<PlayerProps[]>([]);
+  // Create a Map to store refs by player ID
+  const sphereRefs = useRef<Map<string, React.RefObject<Mesh>>>(new Map());
+  // Create a separate ref for position interpolation
+  const currentPositions = useRef<Map<string, Vector3>>(new Map());
+  const targetPositions = useRef<Map<string, Vector3>>(new Map());
 
   useEffect(() => {
     const socket = new Socket('ws://localhost:4000/socket', { transports: ['websocket'] });
@@ -85,17 +51,88 @@ const Scene = () => {
 
   useEffect(() => {
     if (!socket) return;
-    const phoenixChannel = socket.channel('furbox:main', { });
-    phoenixChannel.join().receive('ok', (resp) => {
-      setChannel(phoenixChannel);
-      setPlayerNumber(resp);
-      phoenixChannel.on("game_changed", (payload: any) => {
-        // console.log(payload);
-        console.log([...payload.players, payload.ball]);
-        setPlayers([...payload.players, payload.ball]);
-      })
-    });
+
+    const phoenixChannel = socket.channel('furbox:main', {});
+
+    phoenixChannel.join()
+      .receive('ok', (resp) => {
+        setChannel(phoenixChannel);
+        setPlayerNumber(resp);
+        setIsConnected(true);
+
+        phoenixChannel.on("game_changed", (payload: any) => {
+          const updatedPlayers = [...payload.players, payload.ball];
+
+          // Update target positions instead of state
+          updatedPlayers.forEach(player => {
+            if (!sphereRefs.current.has(player.id)) {
+              sphereRefs.current.set(player.id, React.createRef<Mesh>());
+              setInitialPlayers(prev => [...prev, player]); // Only update state for new players
+            }
+
+            // Update target position
+            const targetPos = new Vector3(player.position[0], player.position[1], 0);
+            targetPositions.current.set(player.id, targetPos);
+
+            // Initialize current position if it doesn't exist
+            if (!currentPositions.current.has(player.id)) {
+              currentPositions.current.set(player.id, targetPos.clone());
+            }
+          });
+        });
+      });
+
+    return () => {
+      phoenixChannel.leave();
+      setIsConnected(false);
+    };
   }, [socket]);
+
+  // Create spheres only once for initial players
+  const spheres = useMemo(() =>
+    initialPlayers.map((player) => (
+      <Sphere
+        key={player.id}
+        ref={sphereRefs.current.get(player.id)}
+        player={player}
+      />
+    )),
+    [initialPlayers] // Only recreate when initial players change
+  );
+
+  // Animation loop using requestAnimationFrame
+  useEffect(() => {
+    let animationFrameId: number;
+
+    const animate = () => {
+      sphereRefs.current.forEach((ref, playerId) => {
+        if (ref.current) {
+          const currentPos = currentPositions.current.get(playerId);
+          const targetPos = targetPositions.current.get(playerId);
+
+          if (currentPos && targetPos) {
+            // Smooth interpolation
+            currentPos.lerp(targetPos, 0.2); // Adjust this value to control smoothing (0-1)
+
+            // Update mesh position
+            ref.current.position.copy(currentPos);
+          }
+        }
+      });
+
+      animationFrameId = requestAnimationFrame(animate);
+    };
+
+    if (isConnected) {
+      animate();
+    }
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  }, [isConnected]);
 
   useEffect(() => {
     const keysPressed: { [key: string]: boolean } = {};
@@ -146,12 +183,6 @@ const Scene = () => {
     };
   }, [channel]);
 
-  // PLAYERS POSITION UPDATE
-  useEffect(() => {
-    console.log(players);
-    // handlePositionChange(players); // I will receive a new position and want to handle this position change on each sphere
-  }, [players]);
-
   // GUI SETUP
   // Create a ref for the GUI instance
   const guiRef = useRef<GUI | null>(null);
@@ -169,6 +200,11 @@ const Scene = () => {
     }
   }, []);
 
+  // Only render Canvas when connected
+  if (!isConnected) {
+    return <div>Connecting...</div>;
+  }
+
   return (
     <Canvas
       fallback={<div>Sorry no WebGL supported!</div>}
@@ -176,14 +212,9 @@ const Scene = () => {
       camera={SCENE_CONFIGURATION.cameraProps}    // Adjust camera to view model from front
     >
       {/* Models */}
-      { players?.map((player: PlayerProps, index: number) => (
-        <Sphere
-          key={`player-${index}`}
-          player={player}
-        />
-      )) }
-
       <Court />
+      { spheres }
+
 
       {/* Camera animation */}
       {/* <AnimatedCamera /> */}
