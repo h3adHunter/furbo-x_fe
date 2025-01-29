@@ -25,7 +25,7 @@ const Sphere = React.forwardRef<Mesh, SphereProps>(({ player, color }, ref) => {
     <animated.mesh
       ref={ref}
       position={position as any}
-      scale={1}
+      scale={player.scale}
     >
       { geometry }
       { material }
