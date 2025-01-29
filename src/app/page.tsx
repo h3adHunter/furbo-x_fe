@@ -55,7 +55,7 @@ const Scene = () => {
   useGameControls(channel, playerNumber);
 
   useEffect(() => {
-    const socket = new Socket('ws://192.168.192.87:4000/socket', { transports: ['websocket'] });
+    const socket = new Socket('ws://localhost:4000/socket', { transports: ['websocket'] });
     setSocket(socket);
     socket.connect();
   }, []);
@@ -68,7 +68,7 @@ const Scene = () => {
     phoenixChannel.join()
       .receive('ok', (resp) => {
         setChannel(phoenixChannel);
-        setPlayerNumber(resp);
+        setPlayerNumber(resp.player_id);
         setIsConnected(true);
 
         phoenixChannel.on("game_changed", (payload: any) => {
@@ -130,7 +130,7 @@ const Scene = () => {
     <Sphere
       key="ball"
       ref={ballRef.current}
-      player={{ id: "ball", position:initialBall.position}}
+      player={{ id: "ball", position:initialBall.position, scale: initialBall.scale}}
       color="#ffffff"
     />
   ), [initialBall]);
