@@ -1,62 +1,24 @@
 "use client";
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import GUI from 'lil-gui';
 import { Socket } from 'phoenix';
 
-import { BackSide, TextureLoader } from 'three';
+import { Mesh, Vector3 } from 'three';
+import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
-import { Canvas, useLoader } from '@react-three/fiber';
-import { useSpring, a } from '@react-spring/three';
 
 import Court from '@/components/core/Court';
 import Sphere from '@/components/core/Sphere';
 
-import Lighting from '@/components/lighting/Lighting';
 import Effects from '@/components/effects/Effects';
+import Lighting from '@/components/lighting/Lighting';
 
-import PlayerProps from '@/types';
+import SpaceBackground from '@/components/background/SpaceBackground';
 
-// const StarfieldBackground = () => {
-//   return (
-//     <mesh>
-//       <points>
-//         <bufferGeometry />
-//         <pointsMaterial size={0.1} sizeAttenuation={true} />
-//       </points>
-//     </mesh>
-//   );
-// }
+import PlayerProps, { BallProps } from '@/types';
 
-const SpaceBackground: React.FC = () => {
-  const spaceTexture = useLoader(TextureLoader, '/space-background.jpg'); // Load background image
-
-  return (
-    <mesh>
-      <sphereGeometry args={[100, 32, 32]} />
-      <meshBasicMaterial map={spaceTexture} side={BackSide} />
-    </mesh>
-  );
-};
-
-
-const AnimatedCamera: React.FC = () => {
-  const cameraSpring = useSpring({
-    from: { x: 0, y: 0, z: 500 },
-    to: { x: 100, y: 100, z: 300 },
-    config: { tension: 120, friction: 14 }
-  })
-
-  return (
-    <a.perspectiveCamera
-      position={[
-        cameraSpring.x,
-        cameraSpring.y,
-        cameraSpring.z
-      ]}
-    />
-  )
-}
+import { useGameControls } from '@/hooks/use-game-controls';
 
 const SCENE_CONFIGURATION = {
   canvasProps: {
@@ -72,85 +34,187 @@ const Scene = () => {
   // WEB SOCKET'S CONNECTIONS
   const [socket, setSocket] = useState<any>(null);
   const [channel, setChannel] = useState<any>(null);
-  const [players, setPlayers] = useState<any>(null);
+  const [playerNumber, setPlayerNumber] = useState<number>(0);
+  const [isConnected, setIsConnected] = useState<boolean>(false);
 
-  const gui = new GUI();
+  // GAME'S STATE
+  const [initialPlayers, setInitialPlayers] = useState<PlayerProps[]>([]);
+  const [initialBall, setInitialBall] = useState<BallProps>({ position: [0, 0] });
+
+  // Create a Map to store refs by player ID
+  const playerRefs = useRef<Map<string, React.RefObject<Mesh>>>(new Map());
+  // Create a separate ref for position interpolation
+  const currentPlayerPositions = useRef<Map<string, Vector3>>(new Map());
+  const targetPlayerPositions = useRef<Map<string, Vector3>>(new Map());
+
+  // Create a Map to store refs for the ball
+  const ballRef = useRef<React.RefObject<Mesh>>(React.createRef<Mesh>());
+  const currentBallPosition = useRef<Vector3>(new Vector3());
+  const targetBallPosition = useRef<Vector3>(new Vector3());
+
+  useGameControls(channel, playerNumber);
 
   useEffect(() => {
-    const socket = new Socket('ws://localhost:4000/socket', { transports: ['websocket'] });
+    const socket = new Socket('ws://192.168.192.87:4000/socket', { transports: ['websocket'] });
     setSocket(socket);
     socket.connect();
   }, []);
 
   useEffect(() => {
     if (!socket) return;
-    const phoenixChannel = socket.channel('furbox:main', { });
-    phoenixChannel.join().receive('ok', () => {
-      setChannel(phoenixChannel);
 
-      phoenixChannel.on("game_changed", (payload: any) => {
-        // console.log(payload);
-        setPlayers(payload.players);
-      })
+    const phoenixChannel = socket.channel('furbox:main', {});
 
-      phoenixChannel.push("move_player", { player: 'Rodo', offset: [0, 0]});
-    });
-  }, [socket]);
+    phoenixChannel.join()
+      .receive('ok', (resp) => {
+        setChannel(phoenixChannel);
+        setPlayerNumber(resp);
+        setIsConnected(true);
 
-  useEffect(() => {
-    const keysPressed: { [key: string]: boolean } = {};
+        phoenixChannel.on("game_changed", (payload: any) => {
+          const updatedPlayers = [...payload.players];
+          const updatedBall = payload.ball;
 
-    const handleUserKeyDown = (event: KeyboardEvent) => {
-      if (!channel) return;
+          // console.log("Game updated:", payload);
+          // Update player positions
+          updatedPlayers.forEach(player => {
+            if (!playerRefs.current.has(player.id)) {
+              playerRefs.current.set(player.id, React.createRef<Mesh>());
+              setInitialPlayers(prev => [...prev, player]); // Only update state for new players
+            }
 
-      // Prevent default behavior to avoid scrolling
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) {
-        event.preventDefault();
-      }
+            // Update target position
+            const targetPos = new Vector3(player.position[0], player.position[1], 0);
+            targetPlayerPositions.current.set(player.id, targetPos);
 
-      keysPressed[event.key] = true;
-      updatePlayerPosition();
-    };
+            // Initialize current position if it doesn't exist
+            if (!currentPlayerPositions.current.has(player.id)) {
+              currentPlayerPositions.current.set(player.id, targetPos.clone());
+            }
+          });
 
-    const handleUserKeyUp = (event: KeyboardEvent) => {
-      keysPressed[event.key] = false;
-      updatePlayerPosition();
-    };
-
-    const updatePlayerPosition = () => {
-      if (!channel) return;
-
-      let offsetX = 0;
-      let offsetY = 0;
-
-      if (keysPressed['ArrowUp'] || keysPressed['w'] || keysPressed['W']) offsetY += 1;
-      if (keysPressed['ArrowDown'] || keysPressed['s'] || keysPressed['S']) offsetY -= 1;
-      if (keysPressed['ArrowLeft'] || keysPressed['a'] || keysPressed['A']) offsetX -= 1;
-      if (keysPressed['ArrowRight'] || keysPressed['d'] || keysPressed['D']) offsetX += 1;
-
-      if (offsetX !== 0 || offsetY !== 0) {
-        channel.push("move_player", { player: 'Rodo', offset: [offsetX, offsetY] });
-      }
-
-      if(keysPressed[' ']) {
-        console.log("Spaceee");
-      }
-    };
-
-    window.addEventListener('keydown', handleUserKeyDown);
-    window.addEventListener('keyup', handleUserKeyUp);
+          // Update ball position
+          const ballTargetPos = new Vector3(
+            updatedBall.position[0],
+            updatedBall.position[1],
+            0
+          );
+          targetBallPosition.current = ballTargetPos;
+          if (!currentBallPosition.current) {
+            currentBallPosition.current = ballTargetPos.clone();
+          }
+        });
+      });
 
     return () => {
-      window.removeEventListener('keydown', handleUserKeyDown);
-      window.removeEventListener('keyup', handleUserKeyUp);
+      phoenixChannel.leave();
+      setIsConnected(false);
     };
-  }, [channel]);
+  }, [socket]);
 
-  // PLAYERS POSITION UPDATE
+  // Create spheres only once for initial players
+  const playerSpheres  = useMemo(() =>
+    initialPlayers.map((player) => (
+      <Sphere
+        key={player.id}
+        ref={playerRefs.current.get(player.id)}
+        player={player}
+        color="orange"
+      />
+    )),
+    [initialPlayers] // Only recreate when initial players change
+  );
+
+  // Create a sphere for the ball
+  const ballSphere = useMemo(() => (
+    <Sphere
+      key="ball"
+      ref={ballRef.current}
+      player={{ id: "ball", position:initialBall.position}}
+      color="#ffffff"
+    />
+  ), [initialBall]);
+
+  // Animation loop using requestAnimationFrame
   useEffect(() => {
-    console.log(players);
-    // handlePositionChange(players); // I will receive a new position and want to handle this position change on each sphere
-  }, [players]);
+    let animationFrameId: number;
+
+    const animate = () => {
+      playerRefs.current.forEach((ref, playerId) => {
+        if (ref.current) {
+          const currentPos = currentPlayerPositions.current.get(playerId);
+          const targetPos = targetPlayerPositions.current.get(playerId);
+
+          if (currentPos && targetPos) {
+            // Smooth interpolation
+            currentPos.lerp(targetPos, 0.2); // Adjust this value to control smoothing (0-1)
+
+            // Update mesh position
+            ref.current.position.copy(currentPos);
+          }
+        }
+      });
+
+      if (ballRef.current?.current && targetBallPosition.current) {
+        currentBallPosition.current.lerp(targetBallPosition.current, 0.2);
+        ballRef.current.current.position.copy(currentBallPosition.current);
+      }
+
+      animationFrameId = requestAnimationFrame(animate);
+    };
+
+    if (isConnected) {
+      animate();
+    }
+
+    return () => {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+    };
+  }, [isConnected]);
+
+  // useEffect(() => {
+  //   const keysPressed: { [key: string]: boolean } = {};
+
+  //   const handleUserKeyDown = (event: KeyboardEvent) => {
+  //     keysPressed[event.key] = true;
+  //     updatePlayerPosition();
+  //   };
+
+  //   const handleUserKeyUp = (event: KeyboardEvent) => {
+  //     keysPressed[event.key] = false;
+  //     updatePlayerPosition();
+  //   };
+
+  //   const updatePlayerPosition = () => {
+  //     if (!channel) return;
+
+  //     let offsetX = 0;
+  //     let offsetY = 0;
+
+  //     if (keysPressed['ArrowUp'] || keysPressed['w'] || keysPressed['W']) offsetY += 1;
+  //     if (keysPressed['ArrowDown'] || keysPressed['s'] || keysPressed['S']) offsetY -= 1;
+  //     if (keysPressed['ArrowLeft'] || keysPressed['a'] || keysPressed['A']) offsetX -= 1;
+  //     if (keysPressed['ArrowRight'] || keysPressed['d'] || keysPressed['D']) offsetX += 1;
+
+  //     if (offsetX !== 0 || offsetY !== 0) {
+  //       channel.push("move_player", { player: playerNumber, offset: [offsetX, offsetY] });
+  //     }
+
+  //     if(keysPressed[' ']) {
+  //       console.log("Spaceee");
+  //     }
+  //   };
+
+  //   window.addEventListener('keydown', handleUserKeyDown);
+  //   window.addEventListener('keyup', handleUserKeyUp);
+
+  //   return () => {
+  //     window.removeEventListener('keydown', handleUserKeyDown);
+  //     window.removeEventListener('keyup', handleUserKeyUp);
+  //   };
+  // });
 
   // GUI SETUP
   // Create a ref for the GUI instance
@@ -169,6 +233,11 @@ const Scene = () => {
     }
   }, []);
 
+  // Only render Canvas when connected
+  if (!isConnected) {
+    return <div>Connecting...</div>;
+  }
+
   return (
     <Canvas
       fallback={<div>Sorry no WebGL supported!</div>}
@@ -176,14 +245,13 @@ const Scene = () => {
       camera={SCENE_CONFIGURATION.cameraProps}    // Adjust camera to view model from front
     >
       {/* Models */}
-      { players?.map((player: PlayerProps, index: number) => (
-        <Sphere
-          key={`player-${index}`}
-          player={player}
-        />
-      )) }
-
       <Court />
+
+      {/* Player spheres */}
+      { playerSpheres }
+
+      {/* Ball sphere */}
+      { ballSphere }
 
       {/* Camera animation */}
       {/* <AnimatedCamera /> */}
